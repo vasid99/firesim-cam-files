@@ -24,7 +24,7 @@ class CamRTL(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{ /// TODO
   
   // tag and data arrays
   val tags = Reg(Vec(depth, UInt(tagWidth.W)))//Mem(depth, UInt(tagWidth.W))
-  val data = Mem(depth, UInt(dataWidth.W))
+  val data = SyncReadMem(depth, UInt(dataWidth.W))
   
   // hit processing
   val tagMatch = tags map { case t => t === io.in.tag }
@@ -32,7 +32,7 @@ class CamRTL(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{ /// TODO
   val hitDetected = tagMatch.orR
   
   // (write) miss processing
-  val rpolicy = new SetAssocLRU(1, depth, "plru")// TODO accept as constructor arg
+  val rpolicy = new SetAssocLRU(1, depth, "lru")// TODO accept as constructor arg
   val setIndex = WireDefault(0.U)
   val replIdx = rpolicy.way(setIndex)
   
@@ -50,6 +50,7 @@ class CamRTL(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{ /// TODO
       dataport := io.in.wrData
       tags(memaddr) := io.in.tag
       io.out.rdData := DontCare
+      when(!hitDetected){ rpolicy.access(setIndex, replIdx) }
     }.otherwise{
       io.out.rdData := dataport
     }
@@ -130,7 +131,7 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   val memactive = state===s_memwait
   
   // replacement policy
-  val rpolicy = new SetAssocLRU(1, depth, "plru")
+  val rpolicy = new SetAssocLRU(1, depth, "lru")
   val setIndex = WireDefault(0.U)
   val replIdx = rpolicy.way(setIndex)
   
@@ -141,8 +142,6 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   io.in.en.ready     := iReady
   io.in.wr.ready     := iReady
   val iValid = io.in.tag.valid && io.in.wrData.valid && io.in.en.valid && io.in.wr.valid
-  //io.in.getElements.foreach({case sig => sig.ready := iReady})
-  //val iValid = (io.in.getElements foldLeft WireDefault(true.B))({case (inp, value) => value && inp.valid})
   def iFire = iValid && iReady
   
   // output ready-valid
@@ -189,7 +188,7 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
     when(inputs.wr){
       dataport := inputs.wrData
       tagport := inputs.tag
-      /// TODO replacement policy update?
+      when(hitDetected){ rpolicy.access(setIndex, replIdx) }/// TODO replacement policy update?
     }.otherwise{
       rdData := Mux(hit, data.read(memaddr), DontCare)
     }
@@ -233,5 +232,17 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
 }
 
 object Cam {
-  def apply(depth: Int, tagWidth: Int, dataWidth: Int) = Module(new CamRTL(depth, tagWidth, dataWidth))
+  def apply(depth: Int, tagWidth: Int, dataWidth: Int) = {
+  	// initialize CAM module
+  	val cam = Module(new CamRTL(depth, tagWidth, dataWidth))
+  	
+  	// assign default values
+  	cam.io.in.tag    := DontCare
+  	cam.io.in.wrData := DontCare
+  	cam.io.in.en     := false.B
+  	cam.io.in.wr     := false.B
+  	
+  	// return CAM
+  	cam
+	}
 }

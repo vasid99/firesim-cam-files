@@ -315,6 +315,12 @@ case class ModelReadWritePort(
   override def getTargets: Seq[ReferenceTarget] = Seq(wmode, rdata, wdata, wmask, addr, en)
 }
 
+/**
+  * Indicates that this is a port of a CAM that
+  * needs to be replaced by a decoupled model
+  * 
+  * @param rt Reference target to the respective port
+  */
 object CamPortAnnotation{
   def apply(rt:ReferenceTarget) = new CamPortAnnotation(rt, rt.ref)
 }
