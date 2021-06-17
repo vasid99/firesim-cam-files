@@ -28,7 +28,7 @@ class CamRTL(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{ /// TODO
   
   // hit processing
   val tagMatch = tags map { case t => t === io.in.tag }
-  val hitIdx = OHToUInt(tagMatch)
+  val hitIdx = PriorityEncoder(tagMatch)
   val hitDetected = tagMatch.orR
   
   // (write) miss processing
@@ -49,7 +49,7 @@ class CamRTL(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{ /// TODO
     when(io.in.wr){
       dataport := io.in.wrData
       tags(memaddr) := io.in.tag
-      io.out.rdData := DontCare
+      io.out.rdData := 0.U
       when(!hitDetected){ rpolicy.access(setIndex, replIdx) }
     }.otherwise{
       io.out.rdData := dataport
@@ -59,8 +59,8 @@ class CamRTL(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{ /// TODO
     io.out.hit := hitDetected
   }.otherwise{
     // assign all outputs to DontCare
-    io.out.rdData := DontCare
-    io.out.hit := DontCare
+    io.out.rdData := 0.U
+    io.out.hit := 0.U
   }
   
   def read(tag: UInt): UInt = {
@@ -98,6 +98,7 @@ class CamModelIO(tagWidth: Int, dataWidth: Int) extends Bundle{
 
 class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   val io = IO(new CamModelIO(tagWidth, dataWidth))
+  val idxWidth = log2Ceil(depth)
   
   // state variables
   lazy val s_wait :: s_searching :: s_searchdone :: s_memwait :: s_done :: Nil = Enum(5)
@@ -113,10 +114,10 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   })
   
   // tag search
-  val tagCtr = Reg(UInt(log2Ceil(depth).W))
+  val tagCtr = Reg(UInt(idxWidth.W))
   tagCtr := Mux(state===s_searching, tagCtr+1.U, 0.U)
   val hitDetected = WireDefault(false.B)
-  val hitIdx = RegEnable(tagCtr, hitDetected)
+  val hitIdx = Reg(UInt(idxWidth.W))
   val hit = Reg(Bool())
   
   // memory arrays
@@ -124,7 +125,7 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   val data = SyncReadMem(depth, UInt(dataWidth.W))
   
   // memory ports
-  val memaddr = Wire(UInt(log2Ceil(depth).W))
+  val memaddr = Wire(UInt(idxWidth.W))
   val tagport = tags(memaddr)
   val dataport = data(memaddr)
   val rdData = Reg(UInt(dataWidth.W))
@@ -162,7 +163,14 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   // hit-bit register update
   when(state===s_wait){
     hit := false.B
-  }.elsewhen(state===s_searching||state===s_searchdone){
+    hitIdx := 0.U
+  }.elsewhen(state===s_searching){
+    when(hitDetected){
+		  hit := true.B
+    }.otherwise{
+		  hitIdx := tagCtr
+  	}
+  }.elsewhen(state===s_searchdone){
     hit := hitDetected
   }
 
@@ -170,17 +178,9 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   when(state===s_searching){
     memaddr := tagCtr
   }.elsewhen(state===s_memwait){
-    when(hit){
-      memaddr := hitIdx
-    }.otherwise{
-      when(inputs.wr){
-        memaddr := replIdx
-      }.otherwise{
-        memaddr := DontCare
-      }
-    }
+    memaddr := Mux(hit, hitIdx, replIdx)
   }.otherwise{
-    memaddr := DontCare
+    memaddr := 0.U
   }
 
   // data operations
@@ -188,9 +188,9 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
     when(inputs.wr){
       dataport := inputs.wrData
       tagport := inputs.tag
-      when(hitDetected){ rpolicy.access(setIndex, replIdx) }/// TODO replacement policy update?
+      when(!hit){ rpolicy.access(setIndex, replIdx) }/// TODO replacement policy update?
     }.otherwise{
-      rdData := Mux(hit, data.read(memaddr), DontCare)
+      rdData := Mux(hit, dataport, 0.U)
     }
     when(hit){
       rpolicy.access(setIndex, hitIdx)
@@ -198,7 +198,7 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   }
 
   // assigning outputs
-  iReady := state===s_wait
+  iReady := state===s_wait && iValid
   
   io.out.rdData.bits := rdData
   io.out.hit.bits := hit
@@ -206,8 +206,8 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
 
   // state update
   when(state===s_wait){
-    when(iFire && io.in.en.bits){
-      nextstate := s_searching /// TODO or should to go to s_done?
+    when(iFire){
+      nextstate := Mux(io.in.en.bits, s_searching, s_done) /// TODO or should to go to s_done?
     }
   }.elsewhen(state===s_searching){
     when(tagport===inputs.tag){
