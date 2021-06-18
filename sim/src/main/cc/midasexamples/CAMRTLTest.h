@@ -5,10 +5,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-struct CAMTest_t: virtual simif_t
+struct CAMRTLTest_t: virtual simif_t
 {
 	int num_cycles = 100;
-  CAMTest_t(int argc, char** argv) {
+  CAMRTLTest_t(int argc, char** argv) {
   	if(argc>1){
   		num_cycles = atoi(argv[1]);
 		}
@@ -24,7 +24,7 @@ struct CAMTest_t: virtual simif_t
 
 private:
 
-  size_t depth = 16, tagWidth = 8, dataWidth = 32;
+  size_t depth = 32, tagWidth = 10, dataWidth = 32;
   size_t tagSize = depth < (1<<tagWidth) ? depth : 1<<tagWidth;
 	
   void do_iteration(size_t cycle_num) {

@@ -32,7 +32,7 @@ class CamRTL(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{ /// TODO
   val hitDetected = tagMatch.orR
   
   // (write) miss processing
-  val rpolicy = new SetAssocLRU(1, depth, "lru")// TODO accept as constructor arg
+  val rpolicy = new SetAssocLRU(1, depth, "plru")// TODO accept as constructor arg
   val setIndex = WireDefault(0.U)
   val replIdx = rpolicy.way(setIndex)
   
@@ -132,7 +132,7 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   val memactive = state===s_memwait
   
   // replacement policy
-  val rpolicy = new SetAssocLRU(1, depth, "lru")
+  val rpolicy = new SetAssocLRU(1, depth, "plru")
   val setIndex = WireDefault(0.U)
   val replIdx = rpolicy.way(setIndex)
   
@@ -188,7 +188,7 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
     when(inputs.wr){
       dataport := inputs.wrData
       tagport := inputs.tag
-      when(!hit){ rpolicy.access(setIndex, replIdx) }/// TODO replacement policy update?
+      when(!hit){ rpolicy.access(setIndex, replIdx) }
     }.otherwise{
       rdData := Mux(hit, dataport, 0.U)
     }
@@ -207,7 +207,7 @@ class CamModel(depth: Int, tagWidth: Int, dataWidth: Int) extends Module{
   // state update
   when(state===s_wait){
     when(iFire){
-      nextstate := Mux(io.in.en.bits, s_searching, s_done) /// TODO or should to go to s_done?
+      nextstate := Mux(io.in.en.bits, s_searching, s_done)
     }
   }.elsewhen(state===s_searching){
     when(tagport===inputs.tag){
